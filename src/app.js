@@ -1,5 +1,10 @@
 const storageKey = "runtime-rodeo-state-v1";
 const roundSeconds = 60;
+const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+const audioEngine = {
+  context: null,
+  master: null
+};
 
 const icons = {
   rocket: svg("M5 15c2-6 6-10 14-12-2 8-6 12-12 14l-2 4-2-4-4-2 4-2Zm9-6 1 1M7 17l-4 4M12 19l-1 3"),
@@ -79,7 +84,7 @@ let state = loadState() ?? {
   selectedTool: null,
   complication: null,
   panicMode: false,
-  muted: true,
+  muted: false,
   showRules: false
 };
 
@@ -95,13 +100,19 @@ document.addEventListener("click", (event) => {
   const action = button.dataset.action;
   if (action === "next") nextRound();
   if (action === "timer") toggleTimer();
-  if (action === "rules") update({ showRules: true });
-  if (action === "close-rules") update({ showRules: false });
+  if (action === "rules") {
+    playEffect("menu");
+    update({ showRules: true });
+  }
+  if (action === "close-rules") {
+    playEffect("close");
+    update({ showRules: false });
+  }
   if (action === "score") awardTeam(state.selectedTeamId);
   if (action === "sabotage") sabotage();
   if (action === "panic") togglePanic();
   if (action === "reset") resetGame();
-  if (action === "mute") update({ muted: !state.muted });
+  if (action === "mute") toggleSound();
   if (action === "team") update({ selectedTeamId: Number(button.dataset.teamId) });
   if (action === "tool") useTool(incidents[state.incidentIndex].tools[Number(button.dataset.toolIndex)]);
 });
@@ -124,7 +135,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (key === "x") sabotage();
   if (key === "p") togglePanic();
-  if (key === "r") update({ showRules: !state.showRules });
+  if (key === "r") {
+    playEffect(state.showRules ? "close" : "menu");
+    update({ showRules: !state.showRules });
+  }
   if (["1", "2", "3", "4"].includes(key)) awardTeam(Number(key));
 });
 
@@ -176,6 +190,7 @@ function syncTimer() {
   intervalId = window.setInterval(() => {
     if (state.timer <= 1) {
       addFeed("timer", "round ended; ship a take before confidence expires", false);
+      playEffect("timeout");
       update({ timer: 0, isRunning: false, chaos: clamp(state.chaos + 6, 0, 100) });
       return;
     }
@@ -184,6 +199,7 @@ function syncTimer() {
 }
 
 function nextRound() {
+  playEffect("next");
   let nextIndex = Math.floor(Math.random() * incidents.length);
   if (nextIndex === state.incidentIndex) nextIndex = (nextIndex + 1) % incidents.length;
   state.round += 1;
@@ -199,10 +215,12 @@ function nextRound() {
 }
 
 function toggleTimer() {
+  playEffect(state.isRunning ? "pause" : "start");
   update({ isRunning: !state.isRunning });
 }
 
 function useTool(tool) {
+  playEffect(tool.risk > 7 ? "riskyTool" : "tool");
   const swing = Math.round((Math.random() * 16 - tool.risk) * (state.panicMode ? 1.4 : 1));
   addFeed("tool", `${tool.label.toLowerCase()} changed uptime by ${swing > 0 ? "+" : ""}${swing}%`, false);
   update({
@@ -214,6 +232,7 @@ function useTool(tool) {
 }
 
 function awardTeam(teamId) {
+  playEffect("score");
   const bonus = Math.max(100, 800 + (state.round % 5) * 75 + Math.round((100 - state.chaos) * 4));
   const winner = state.teams.find((team) => team.id === teamId);
   state.teams = state.teams.map((team) =>
@@ -226,6 +245,7 @@ function awardTeam(teamId) {
 }
 
 function sabotage() {
+  playEffect("sabotage");
   const complication = randomItem(complications);
   addFeed("sabotage", complication, false);
   update({
@@ -236,12 +256,14 @@ function sabotage() {
 }
 
 function togglePanic() {
+  playEffect(state.panicMode ? "cooldown" : "panic");
   const next = !state.panicMode;
   addFeed("panic", next ? "panic mode armed; all takes are now production" : "panic mode cooled down to merely dramatic", false);
   update({ panicMode: next, chaos: clamp(state.chaos + (next ? 10 : -8), 0, 100) });
 }
 
 function resetGame() {
+  playEffect("reset");
   localStorage.removeItem(storageKey);
   state = {
     teams: structuredClone(defaultTeams),
@@ -257,11 +279,77 @@ function resetGame() {
     selectedTool: null,
     complication: null,
     panicMode: false,
-    muted: true,
+    muted: false,
     showRules: false
   };
   render();
   syncTimer();
+}
+
+function toggleSound() {
+  if (state.muted) {
+    state.muted = false;
+    saveState();
+    render();
+    playEffect("unmute");
+    return;
+  }
+  playEffect("mute");
+  update({ muted: true });
+}
+
+function getAudioContext() {
+  if (!AudioContextClass) return null;
+  if (!audioEngine.context) {
+    audioEngine.context = new AudioContextClass();
+    audioEngine.master = audioEngine.context.createGain();
+    audioEngine.master.gain.value = 0.14;
+    audioEngine.master.connect(audioEngine.context.destination);
+  }
+  return audioEngine.context;
+}
+
+function playEffect(name) {
+  if (state.muted) return;
+  const context = getAudioContext();
+  if (!context || !audioEngine.master) return;
+  context.resume?.().catch(() => {});
+  const now = context.currentTime + 0.01;
+  const patterns = {
+    start: [[392, 0, 0.06, "square"], [588, 0.07, 0.08, "square"]],
+    pause: [[260, 0, 0.08, "triangle"], [196, 0.08, 0.1, "triangle"]],
+    next: [[330, 0, 0.05, "square"], [495, 0.055, 0.05, "square"], [742, 0.11, 0.09, "square"]],
+    score: [[523, 0, 0.06, "triangle"], [659, 0.07, 0.06, "triangle"], [880, 0.14, 0.12, "square"]],
+    tool: [[220, 0, 0.045, "sawtooth"], [440, 0.05, 0.06, "square"]],
+    riskyTool: [[185, 0, 0.05, "sawtooth"], [277, 0.045, 0.05, "sawtooth"], [139, 0.1, 0.08, "square"]],
+    sabotage: [[110, 0, 0.08, "sawtooth"], [92, 0.075, 0.08, "sawtooth"], [73, 0.15, 0.12, "square"]],
+    panic: [[880, 0, 0.06, "square"], [660, 0.07, 0.06, "square"], [990, 0.14, 0.08, "square"]],
+    cooldown: [[440, 0, 0.08, "triangle"], [330, 0.08, 0.1, "triangle"]],
+    timeout: [[196, 0, 0.12, "sawtooth"], [147, 0.14, 0.16, "sawtooth"]],
+    reset: [[247, 0, 0.07, "triangle"], [247, 0.085, 0.07, "triangle"]],
+    menu: [[660, 0, 0.04, "triangle"]],
+    close: [[330, 0, 0.045, "triangle"]],
+    unmute: [[523, 0, 0.05, "triangle"], [784, 0.06, 0.08, "triangle"]],
+    mute: [[196, 0, 0.08, "triangle"]]
+  };
+  for (const [frequency, offset, duration, type] of patterns[name] ?? patterns.tool) {
+    tone(context, frequency, now + offset, duration, type);
+  }
+}
+
+function tone(context, frequency, start, duration, type) {
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, start);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(40, frequency * 0.94), start + duration);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(0.58, start + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  oscillator.connect(gain);
+  gain.connect(audioEngine.master);
+  oscillator.start(start);
+  oscillator.stop(start + duration + 0.03);
 }
 
 function addFeed(tag, text, shouldRender = true) {

@@ -15,6 +15,7 @@ Reveal an incident, start the timer, and let teams pitch the funniest survivable
 - Select a team, then click **Score** or press `1`-`4`.
 - Use **Sabotage** when the room is getting too comfortable.
 - Use **Panic mode** when the incident deserves theater.
+- Keep sound on for arcade-style bleeps, alarms, score stings, and panic chirps.
 
 ## Architecture
 
