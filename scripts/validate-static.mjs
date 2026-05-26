@@ -2,6 +2,7 @@ import { access, readFile } from "node:fs/promises";
 
 const required = [
   "index.html",
+  "favicon.svg",
   "src/app.js",
   "src/styles.css",
   "assets/game/arcade-command-room.png",
