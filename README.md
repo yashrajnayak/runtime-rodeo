@@ -4,7 +4,7 @@
 
 Runtime Rodeo is a browser-based developer party game about surviving absurd production incidents, agent mishaps, flaky deploys, tool-call disasters, and suspiciously confident hotfixes.
 
-Live site: <https://yashrajnayak.github.io/runtime-rodeo/>
+Live site: <https://yashrajnayak.com/runtime-rodeo/>
 
 ## How It Plays
 
